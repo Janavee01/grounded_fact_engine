@@ -9,9 +9,16 @@ __pycache__/
 
 # Database and uploaded files
 data/*.db
+data/*.db.*
 data/uploads/
+data/fact_cache/
 *.sqlite
 *.sqlite3
+
+# Colab / export artifacts
+*.zip
+comparisons.json
+facts_export.json
 
 # Environment variables
 .env
