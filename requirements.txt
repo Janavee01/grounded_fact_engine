@@ -11,4 +11,4 @@ streamlit==1.29.0  # for UI later
 requests==2.31.0    # talks to local Ollama server
 rapidfuzz==3.6.1    # fuzzy-matches LLM quotes back into source text for grounding
 pytesseract==0.3.13 # OCR fallback for scanned / image-only PDF pages
-Pillow==12.2.0      # page -> bitmap rendering for OCR (via pdfplumber .to_image)
+Pillow==10.4.0      # page -> bitmap rendering for OCR (must stay <11 for streamlit 1.29)
