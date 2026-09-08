@@ -76,6 +76,41 @@ def test_fact_cache_is_reused_when_only_source_label_changes(tmp_path):
 # 1. grounding.py
 # ---------------------------------------------------------------------------
 
+def test_fact_build_tags_ocr_source():
+    """Facts extracted from OCR-recovered pages must be tagged in context."""
+    extractor = PDFExtractor(llm_client=FakeLLMClient([]))
+    page_text = (
+        "The report discusses growth. "
+        "Revenue growth happened in the last fiscal year."
+    )
+    raw = {
+        "claim": "Revenue growth happened in the last fiscal year.",
+        "fact_type": "semantic",
+        "value": None,
+        "unit": None,
+        "verbatim_quote": "Revenue growth happened in the last fiscal year.",
+        "confidence": 0.9,
+    }
+    fact = extractor._build_fact(
+        raw,
+        page_text,
+        page_number=1,
+        source_document="scanned.pdf",
+        text_source="ocr",
+    )
+    assert fact is not None
+    assert fact.context.get("text_source") == "ocr"
+
+    non_ocr = extractor._build_fact(
+        raw,
+        page_text,
+        page_number=1,
+        source_document="scanned.pdf",
+    )
+    assert non_ocr is not None
+    assert non_ocr.context.get("text_source") is None
+
+
 def test_grounding_exact_match():
     source = "Revenue for FY2023 was 85,000 units, up from the prior year."
     snippet, score = ground_quote("85,000 units", source)

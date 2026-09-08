@@ -115,12 +115,36 @@ class PDFExtractor:
         else:
             self.max_workers = 1
 
+    # ------------------------------------------------------------------
+    #  OCR fallback for scanned / image-only pages
+    # ------------------------------------------------------------------
+
+    OCR_DPI = 300
+
+    def _ocr_page(self, page: Any) -> str:
+        """
+        Second-chance extraction for pages with no selectable text
+        (scanned images, heavily graphical layouts).  Renders the page
+        to a bitmap at OCR_DPI and runs Tesseract over it.
+
+        pytesseract/Pillow are imported lazily so extraction still works
+        on machines without OCR installed — those pages stay empty
+        (logged honestly) instead of crashing the run.
+        """
+        import pytesseract
+
+        image = page.to_image(resolution=self.OCR_DPI).original
+        text = pytesseract.image_to_string(image)
+        return (text or "").strip()
+
     def extract_text(self, pdf_path: str) -> List[Dict[str, Any]]:
         pages = []
 
         try:
             with pdfplumber.open(pdf_path) as pdf:
                 for page_number, page in enumerate(pdf.pages, start=1):
+                    text_source = "pdfplumber"
+
                     try:
                         text = self._page_text(page)
                     except Exception:
@@ -138,10 +162,28 @@ class PDFExtractor:
                         except Exception:
                             text = ""
 
+                    if not text.strip():
+                        try:
+                            text = self._ocr_page(page)
+                        except Exception as exc:
+                            text = ""
+                            self._log(
+                                f"page {page_number}: OCR unavailable "
+                                f"({exc}); page left empty"
+                            )
+
+                        if text:
+                            text_source = "ocr"
+                            self._log(
+                                f"page {page_number}: OCR recovered "
+                                f"{len(text):,} chars"
+                            )
+
                     pages.append(
                         {
                             "page": page_number,
                             "text": text.strip(),
+                            "source": text_source,
                         }
                     )
 
@@ -441,12 +483,13 @@ class PDFExtractor:
         for page_data in pages:
             page_number = page_data["page"]
             page_text = page_data["text"]
+            text_source = page_data.get("source", "pdfplumber")
 
             if not page_text:
                 continue
 
             chunks.extend(
-                (page_number, chunk)
+                (page_number, chunk, text_source)
                 for chunk in self._chunk_page(page_text)
             )
 
@@ -456,7 +499,7 @@ class PDFExtractor:
 
         if self.max_workers == 1:
             raw_results = []
-            for idx, (_page_number, chunk) in enumerate(chunks, start=1):
+            for idx, (_page_number, chunk, _source) in enumerate(chunks, start=1):
                 self._log(f"  chunk {idx}/{total_chunks} ({len(chunk)} chars)")
                 raw_results.append(
                     self._extract_facts_from_chunk(chunk)
@@ -470,7 +513,7 @@ class PDFExtractor:
                 raw_results = []
                 for result in pool.map(
                     self._extract_facts_from_chunk,
-                    (chunk for _page_number, chunk in chunks),
+                    (chunk for _page_number, chunk, _source in chunks),
                 ):
                     done += 1
                     if done % 5 == 0 or done == total_chunks:
@@ -478,13 +521,17 @@ class PDFExtractor:
                     raw_results.append(result)
 
         facts: List[Fact] = []
-        for (page_number, chunk), raw_facts in zip(chunks, raw_results):
+        for (page_number, chunk, text_source), raw_facts in zip(
+            chunks,
+            raw_results,
+        ):
             for raw in raw_facts:
                 fact = self._build_fact(
                     raw,
                     chunk,
                     page_number,
                     source_document,
+                    text_source=text_source,
                 )
 
                 if fact:
@@ -500,7 +547,7 @@ class PDFExtractor:
     # The caller's source label is metadata and must not cause a second
     # extraction of the same file (for example, ``rbi.pdf`` vs its original
     # filename in separate comparison tests).
-    CACHE_VERSION = 2
+    CACHE_VERSION = 3
 
     @staticmethod
     def _default_cache_dir() -> Path:
@@ -849,6 +896,7 @@ class PDFExtractor:
         chunk: str,
         page_number: int,
         source_document: str,
+        text_source: str = "pdfplumber",
     ) -> Optional[Fact]:
 
         if not isinstance(raw, dict):
@@ -933,6 +981,9 @@ class PDFExtractor:
         )
 
         context: Dict[str, Any] = {}
+
+        if text_source != "pdfplumber":
+            context["text_source"] = text_source
 
         if value not in (None, ""):
             context["raw_value"] = value

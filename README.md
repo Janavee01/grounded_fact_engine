@@ -52,7 +52,14 @@ model's reasoning (`explanation`) for each relationship.
   representations as one real figure after converting crore → million.
 
 ### 4. Extraction / reasoning failure — handled honestly
-- Large scanned or table-dense pages often yield ungrounded quotes.
+- **Scanned / image-only pages** used to produce zero text, so no facts. Now
+  they are rendered to a bitmap and **Tesseract OCR** recovers the text
+  automatically; facts from OCR pages are tagged
+  `context["text_source"] = "ocr"` so they can be distinguished from
+  selectable-text pages.
+- Large scanned or table-dense pages often still yield ungrounded quotes
+  (OCR is imperfect — a mis-recognized character makes the model's verbatim
+  quote fail to ground).
 - The `ground_quote()` gate (RapidFuzz, presence + fuzz score ≥ 80) **rejects**
   any fact whose `verbatim_quote` is not an exact substring of the source text.
 - The pipeline logs these rejections rather than crashing, so a single bad
@@ -65,7 +72,9 @@ model's reasoning (`explanation`) for each relationship.
 
 ```
 PDF ──► pdfplumber (plain text + tables, page-by-page)
-         │
+         │  pages with no selectable text (scanned images/graphics)
+         │  ──► render to bitmap ─► Tesseract OCR (pytesseract)
+         │        facts from OCR pages are tagged context["text_source"]="ocr"
          ▼
   1 LLM call per page (max ~14k chars; model: local qwen3:8b, or an OpenRouter model)
          │   system prompt = schema + grounding rules
@@ -102,6 +111,8 @@ Per-page call boundaries keep the evidence in-context so facts stay grounded.
 - A GPU with ≥8 GB VRAM is recommended for local extraction (a free **Colab T4**
   works great — see [colab/](colab/Fact_Knowledge_Layer_Colab.ipynb)). On a
   CPU-only laptop the extraction step is slower but still works.
+- **Tesseract OCR** (for scanned PDFs) — `sudo apt install tesseract-ocr` or
+  `brew install tesseract`. The Python bindings are in `requirements.txt`.
 
 ### Option A — Local Ollama (free, recommended)
 ```bash
@@ -218,9 +229,11 @@ pytest tests/test_real.py -v -s                          # real end-to-end
 - **`unrelated` pairs are filtered out of results.** The comparator only returns
   corroborate / contradict / reconciled. Surfacing "this document disagrees
   with nothing" as a first-class signal is on the roadmap.
-- **Honest failure we observed:** scanned/non-text PDFs and heavily graphical
-  pages produce no text, so no facts; the system logs it and moves on instead
-  of inventing content. OCR (e.g. `pytesseract`) is the next step.
+- **Honest failure (now handled):** scanned/non-text PDFs produce no
+  selectable text. Text is recovered via **Tesseract OCR** (`pytesseract` +
+  page rendering) and facts from those pages are tagged
+  `context["text_source"] = "ocr"`. Imperfect OCR still means some quotes
+  fail the grounding gate and are honestly dropped.
 - **Schema is fixed today.** A dynamic/evolving schema (new fact types as new
   documents appear) is listed as a brownie point and is the planned follow-up.
 
@@ -229,6 +242,7 @@ pytest tests/test_real.py -v -s                          # real end-to-end
 ## AI Tools Used
 
 - **pdfplumber** — deterministic PDF text/table extraction (no LLM).
+- **Tesseract / pytesseract** — OCR fallback for scanned and image-only pages.
 - **RapidFuzz** — token-set similarity for grounding + candidate pairing.
 - **qwen3 (Ollama, local)** — fact extraction and relationship classification
   on-device; no API keys or paid services needed.
