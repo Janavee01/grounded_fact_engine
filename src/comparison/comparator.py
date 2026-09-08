@@ -1,160 +1,413 @@
+# src/comparison/comparator.py
+
 import re
 from typing import List, Dict, Any, Optional
+
 from rapidfuzz import fuzz
 
 from ..models.fact import FactComparison
 from ..extraction.llm_client import LLMClient
 
-COMPARISON_SYSTEM_PROMPT = """You are an objective, precise fact-comparison engine.
-Compare two facts extracted from documents and determine their relationship.
 
-Carefully compare their core VALUES, ENTITIES, UNITS, and TIMEFRAMES/SCOPES:
-- "contradicts": Both facts describe the same entity and metric under the same timeframe/scope, but state DIFFERENT numbers, values, or outcomes.
-- "corroborates": Both facts describe the same entity/metric and agree on the same value and unit.
-- "reconciled": The values or claims differ, but the discrepancy is logically explained by differing time periods, scopes, currencies, or conditions.
-- "unrelated": The facts discuss different subjects or independent metrics.
+COMPARISON_SYSTEM_PROMPT = """You are a precise, document-agnostic fact-comparison engine.
 
-Check the exact value fields carefully. If Value 1 is 20 and Value 2 is 25 for the same entity and scope, they CONTRADICT each other.
+Compare two facts from arbitrary documents.
 
-Return ONLY a JSON object in this format:
+Do not assume any particular domain, organization, metric, terminology,
+document type, unit system, or reporting convention.
+
+Classify the relationship as exactly one of:
+
+"corroborates"
+    The facts describe the same underlying claim and are consistent.
+
+"contradicts"
+    The facts describe the same underlying claim, with sufficiently
+    comparable context, but contain incompatible values or outcomes.
+
+"reconciled"
+    The facts appear different but the difference is explicitly explained
+    by a difference in timeframe, scope, definition, measurement basis,
+    aggregation, unit representation, rounding, or another contextual
+    distinction.
+
+"unrelated"
+    The facts do not describe the same underlying claim.
+
+Do not infer missing context.
+
+Equivalent representations of a value should not be treated as contradictions.
+
+Return ONLY:
+
 {
-  "relationship": "corroborates" | "contradicts" | "reconciled" | "unrelated",
-  "confidence": 0.0 to 1.0,
-  "explanation": "A concise 1-2 sentence explanation pointing out the exact values and why they agree, conflict, or reconcile.",
-  "context_notes": "Key difference if reconciled, else null"
-}"""
+  "relationship": "...",
+  "confidence": 0.0,
+  "explanation": "...",
+  "context_notes": null
+}
+"""
 
 
 class FactComparator:
-    def __init__(self, llm_client: Optional[LLMClient] = None):
+
+    def __init__(
+        self,
+        llm_client: Optional[LLMClient] = None,
+    ):
         self.llm = llm_client or LLMClient()
 
-    def compare_facts(self, facts: List[Any]) -> List[FactComparison]:
-        """Compare extracted facts and identify relationships using candidate pruning + LLM reasoning."""
-        comparisons: List[FactComparison] = []
-        n = len(facts)
-        if n < 2:
-            return comparisons
+    def compare_facts(
+        self,
+        facts: List[Any],
+    ) -> List[FactComparison]:
 
-        # Convert facts to dict if they are Pydantic models or objects
+        if len(facts) < 2:
+            return []
+
         dict_facts = [
-            f.model_dump() if hasattr(f, "model_dump")
-            else f.__dict__ if hasattr(f, "__dict__")
-            else f
-            for f in facts
+            self._to_dict(fact)
+            for fact in facts
         ]
 
-        # 1. Candidate selection using heuristics to avoid O(n^2) LLM calls
-        candidate_pairs = []
-        for i in range(n):
-            for j in range(i + 1, n):
-                f1 = dict_facts[i]
-                f2 = dict_facts[j]
-                if self._are_candidates(f1, f2):
-                    candidate_pairs.append((f1, f2))
+        comparisons = []
 
-        # 2. LLM comparison for shortlisted candidates
-        for f1, f2 in candidate_pairs:
-            comp = self._compare_pair_with_llm(f1, f2)
-            if comp and comp.relationship != "unrelated":
-                comparisons.append(comp)
+        for index, fact1 in enumerate(dict_facts):
+            for fact2 in dict_facts[index + 1:]:
+                if not self._are_candidates(
+                    fact1,
+                    fact2,
+                ):
+                    continue
+
+                comparison = self._compare_pair_with_llm(
+                    fact1,
+                    fact2,
+                )
+
+                if (
+                    comparison
+                    and comparison.relationship != "unrelated"
+                ):
+                    comparisons.append(comparison)
 
         return comparisons
 
-    def _are_candidates(self, f1: Dict[str, Any], f2: Dict[str, Any]) -> bool:
-        """Prune pairs early without hardcoded keywords."""
-        # 1. Matching or overlapping entities
-        e1 = str(f1.get("entity") or "").strip().lower()
-        e2 = str(f2.get("entity") or "").strip().lower()
-        if e1 and e2 and (e1 in e2 or e2 in e1 or fuzz.ratio(e1, e2) > 75):
+    def _to_dict(
+        self,
+        fact: Any,
+    ) -> Dict[str, Any]:
+
+        if hasattr(fact, "model_dump"):
+            data = fact.model_dump()
+
+        elif isinstance(fact, dict):
+            data = dict(fact)
+
+        elif hasattr(fact, "__dict__"):
+            data = dict(fact.__dict__)
+
+        else:
+            return {}
+
+        context = data.get("context")
+
+        if not isinstance(context, dict):
+            context = {}
+
+        for field in (
+            "entity",
+            "time_period",
+            "scope",
+        ):
+            if field not in data:
+                data[field] = context.get(field)
+
+        return data
+
+    def _are_candidates(
+        self,
+        f1: Dict[str, Any],
+        f2: Dict[str, Any],
+    ) -> bool:
+
+        if not f1 or not f2:
+            return False
+
+        document1 = f1.get(
+            "source_document"
+        )
+
+        document2 = f2.get(
+            "source_document"
+        )
+
+        if (
+            document1
+            and document2
+            and document1 == document2
+        ):
+            return False
+
+        claim1 = self._normalize_text(
+            f1.get("text")
+            or f1.get("claim")
+            or ""
+        )
+
+        claim2 = self._normalize_text(
+            f2.get("text")
+            or f2.get("claim")
+            or ""
+        )
+
+        if not claim1 or not claim2:
+            return False
+
+        entity1 = self._context_value(
+            f1,
+            "entity",
+        )
+
+        entity2 = self._context_value(
+            f2,
+            "entity",
+        )
+
+        if entity1 and entity2:
+            entity_similarity = fuzz.token_set_ratio(
+                self._normalize_text(entity1),
+                self._normalize_text(entity2),
+            ) / 100.0
+
+            if entity_similarity >= 0.80:
+                return True
+
+        claim_similarity = fuzz.token_set_ratio(
+            claim1,
+            claim2,
+        ) / 100.0
+
+        if claim_similarity >= 0.72:
             return True
 
-        # 2. High lexical similarity in claim text
-        c1 = str(f1.get("claim") or f1.get("text") or "").lower()
-        c2 = str(f2.get("claim") or f2.get("text") or "").lower()
-        if fuzz.token_set_ratio(c1, c2) > 65:
-            return True
+        # Generic token overlap.
+        tokens1 = self._tokens(claim1)
+        tokens2 = self._tokens(claim2)
 
-        # 3. Share at least two meaningful content words (>3 chars)
-        words1 = set(re.findall(r"\b\w{4,}\b", c1))
-        words2 = set(re.findall(r"\b\w{4,}\b", c2))
-        shared = words1.intersection(words2)
-        if len(shared) >= 2:
-            return True
+        if tokens1 and tokens2:
+            intersection = tokens1 & tokens2
+            union = tokens1 | tokens2
+
+            similarity = (
+                len(intersection) / len(union)
+                if union
+                else 0.0
+            )
+
+            if similarity >= 0.35:
+                return True
 
         return False
 
-    def _compare_pair_with_llm(self, f1: Dict[str, Any], f2: Dict[str, Any]) -> Optional[FactComparison]:
-        """Hybrid comparison: code inspects value equality/inequality; LLM reasons about scope and explains."""
-        val1 = str(f1.get("value") or "").strip()
-        val2 = str(f2.get("value") or "").strip()
-        
-        # Check if values are numeric
-        def try_num(v):
-            clean = re.sub(r"[^\d.-]", "", v)
-            try:
-                return float(clean)
-            except ValueError:
-                return None
+    def _compare_pair_with_llm(
+        self,
+        f1: Dict[str, Any],
+        f2: Dict[str, Any],
+    ) -> Optional[FactComparison]:
 
-        num1, num2 = try_num(val1), try_num(val2)
-        values_differ = (num1 != num2) if (num1 is not None and num2 is not None) else (val1.lower() != val2.lower())
+        user_prompt = f"""
+FACT 1
 
-        user_prompt = f"""Compare these two extracted facts:
+Claim:
+{f1.get("text") or f1.get("claim")}
 
-Fact 1:
-- Claim: {f1.get('claim') or f1.get('text')}
-- Entity: {f1.get('entity')}
-- Value: {val1}
-- Unit: {f1.get('unit')}
-- Time Period: {f1.get('time_period')}
-- Scope: {f1.get('scope')}
+Fact type:
+{f1.get("fact_type")}
 
-Fact 2:
-- Claim: {f2.get('claim') or f2.get('text')}
-- Entity: {f2.get('entity')}
-- Value: {val2}
-- Unit: {f2.get('unit')}
-- Time Period: {f2.get('time_period')}
-- Scope: {f2.get('scope')}
+Value:
+{f1.get("value")}
 
-ANALYSIS HINT:
-The values are {'DIFFERENT' if values_differ else 'IDENTICAL'} ({val1} vs {val2}).
-- If values are DIFFERENT and describe the same scope/timeframe, classify as 'contradicts'.
-- If values are DIFFERENT but explained by differing scope, timeframe, or definitions, classify as 'reconciled'.
-- If values are IDENTICAL and describe the same entity/metric, classify as 'corroborates'.
-- If they describe unrelated subjects, classify as 'unrelated'.
+Unit:
+{f1.get("unit")}
+
+Entity:
+{self._context_value(f1, "entity")}
+
+Time period:
+{self._context_value(f1, "time_period")}
+
+Scope:
+{self._context_value(f1, "scope")}
+
+Source:
+{f1.get("source_document")}
+
+Page:
+{f1.get("source_page")}
+
+
+FACT 2
+
+Claim:
+{f2.get("text") or f2.get("claim")}
+
+Fact type:
+{f2.get("fact_type")}
+
+Value:
+{f2.get("value")}
+
+Unit:
+{f2.get("unit")}
+
+Entity:
+{self._context_value(f2, "entity")}
+
+Time period:
+{self._context_value(f2, "time_period")}
+
+Scope:
+{self._context_value(f2, "scope")}
+
+Source:
+{f2.get("source_document")}
+
+Page:
+{f2.get("source_page")}
+
+
+Determine whether these facts corroborate, contradict, reconcile,
+or are unrelated.
+
+Use only information present above.
 """
 
         try:
-            res = self.llm.generate_json(
+            result = self.llm.generate_json(
                 system_prompt=COMPARISON_SYSTEM_PROMPT,
                 user_prompt=user_prompt,
-                temperature=0.0
+                temperature=0.0,
             )
+
         except Exception as exc:
-            print(f"[comparator] Skipping pair due to error: {exc}")
+            print(
+                f"[comparator] Skipping pair due to error: {exc}"
+            )
             return None
 
-        if not isinstance(res, dict):
+        if not isinstance(result, dict):
             return None
 
-        rel = res.get("relationship", "unrelated").lower()
-        if rel not in {"corroborates", "contradicts", "reconciled", "unrelated"}:
-            rel = "unrelated"
+        relationship = str(
+            result.get(
+                "relationship",
+                "unrelated",
+            )
+        ).strip().lower()
 
-        # Deterministic sanity guard: if values strictly differ on same scope, prevent false corroboration
-        if values_differ and rel == "corroborates":
-            rel = "contradicts" if not (f1.get("scope") or f2.get("scope") or f1.get("time_period") != f2.get("time_period")) else "reconciled"
+        allowed = {
+            "corroborates",
+            "contradicts",
+            "reconciled",
+            "unrelated",
+        }
 
-        f1_id = str(f1.get("id") or f1.get("fact_id") or "f1")
-        f2_id = str(f2.get("id") or f2.get("fact_id") or "f2")
+        if relationship not in allowed:
+            relationship = "unrelated"
+
+        try:
+            confidence = float(
+                result.get(
+                    "confidence",
+                    0.0,
+                )
+            )
+        except (TypeError, ValueError):
+            confidence = 0.0
+
+        confidence = max(
+            0.0,
+            min(1.0, confidence),
+        )
+
+        fact1_id = str(
+            f1.get("id")
+            or f1.get("fact_id")
+            or "f1"
+        )
+
+        fact2_id = str(
+            f2.get("id")
+            or f2.get("fact_id")
+            or "f2"
+        )
 
         return FactComparison(
-            fact1_id=f1_id,
-            fact2_id=f2_id,
-            relationship=rel,
-            confidence=float(res.get("confidence", 0.85)),
-            explanation=str(res.get("explanation", "")),
-            context_notes=res.get("context_notes")
+            fact1_id=fact1_id,
+            fact2_id=fact2_id,
+            relationship=relationship,
+            confidence=confidence,
+            explanation=str(
+                result.get(
+                    "explanation",
+                    "",
+                )
+            ),
+            context_notes=result.get(
+                "context_notes"
+            ),
+        )
+
+    def _context_value(
+        self,
+        fact: Dict[str, Any],
+        field: str,
+    ) -> Any:
+
+        direct = fact.get(field)
+
+        if direct not in (
+            None,
+            "",
+            [],
+            {},
+        ):
+            return direct
+
+        context = fact.get("context")
+
+        if isinstance(context, dict):
+            return context.get(field)
+
+        return None
+
+    def _normalize_text(
+        self,
+        value: Any,
+    ) -> str:
+
+        if value is None:
+            return ""
+
+        text = str(value).lower()
+
+        text = re.sub(
+            r"\s+",
+            " ",
+            text,
+        )
+
+        return text.strip()
+
+    def _tokens(
+        self,
+        text: str,
+    ) -> set:
+
+        return set(
+            re.findall(
+                r"\b\w+\b",
+                text,
+            )
         )
