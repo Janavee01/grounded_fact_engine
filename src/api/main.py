@@ -132,8 +132,9 @@ async def get_stats():
 async def clear_all_facts():
     """Clear all facts (for testing)"""
     try:
-        # This would need to be implemented in database class
-        return {"message": "Facts cleared"}
+        db = Database()
+        count = db.clear_all_facts()
+        return {"message": "Facts cleared", "deleted": count}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

@@ -76,6 +76,19 @@ class Database:
         finally:
             session.close()
     
+    def clear_all_facts(self):
+        """Delete all facts from the database"""
+        session = self.Session()
+        try:
+            count = session.query(FactRecord).delete()
+            session.commit()
+            return count
+        except Exception as e:
+            session.rollback()
+            raise e
+        finally:
+            session.close()
+
     def _record_to_dict(self, record):
         """Convert SQLAlchemy record to dict"""
         return {
