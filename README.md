@@ -229,11 +229,6 @@ pytest tests/test_real.py -v -s                          # real end-to-end
 - **`unrelated` pairs are filtered out of results.** The comparator only returns
   corroborate / contradict / reconciled. Surfacing "this document disagrees
   with nothing" as a first-class signal is on the roadmap.
-- **Honest failure (now handled):** scanned/non-text PDFs produce no
-  selectable text. Text is recovered via **Tesseract OCR** (`pytesseract` +
-  page rendering) and facts from those pages are tagged
-  `context["text_source"] = "ocr"`. Imperfect OCR still means some quotes
-  fail the grounding gate and are honestly dropped.
 - **Schema is fixed today.** A dynamic/evolving schema (new fact types as new
   documents appear) is listed as a brownie point and is the planned follow-up.
 
