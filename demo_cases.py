@@ -85,7 +85,7 @@ def demonstrate_cases():
     print("CASE 4: HALLUCINATION & EXTRACTION FAILURE HANDLING")
     print("=" * 60)
     print("System uses RapidFuzz fuzzy grounding against the raw PDF text.")
-    print("• High-confidence grounding threshold: >= 50.0")
+    print("• High-confidence grounding threshold: >= 80.0")
     print("• Ungrounded hallucinated quotes or unparseable blocks are rejected and skipped.")
     print("• Generalizable: Document-agnostic prompt replaces static regex/keyword lists.")
 
