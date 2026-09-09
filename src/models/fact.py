@@ -6,14 +6,13 @@ from typing import Optional, List, Dict, Any
 
 from pydantic import BaseModel, Field
 
-
 class FactType(str, Enum):
     NUMERIC = "numeric"
     SEMANTIC = "semantic"
     DATE = "date"
+    TIME = "time"
     BOOLEAN = "boolean"
     ENTITY = "entity"
-
 
 class Fact(BaseModel):
     id: str

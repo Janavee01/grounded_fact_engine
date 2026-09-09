@@ -13,7 +13,7 @@ class FactRecord(Base):
     id = Column(String, primary_key=True)
     text = Column(String)
     fact_type = Column(String)
-    value = Column(Float, nullable=True)
+    value = Column(JSON, nullable=True)
     unit = Column(String, nullable=True)
     context = Column(JSON)
     source_document = Column(String)
@@ -102,5 +102,6 @@ class Database:
             'source_page': record.source_page,
             'source_snippet': record.source_snippet,
             'confidence': record.confidence,
+            'extraction_method': record.extraction_method,
             'created_at': record.created_at.isoformat() if record.created_at else None
         }
