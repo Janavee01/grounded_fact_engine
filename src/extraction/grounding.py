@@ -1,7 +1,7 @@
 # src/extraction/grounding.py
 
 import re
-from typing import Tuple
+from typing import Optional, Tuple
 
 from rapidfuzz import fuzz
 
@@ -19,13 +19,15 @@ def ground_quote(
     if not quote or not source_text:
         return "", 0.0
 
-    # Exact source match.
+    # Exact source match. An exact substring is already the strongest,
+    # most concise evidence — return the verbatim span itself rather than
+    # expanding to the whole sentence.
     index = source_text.find(quote)
 
     if index != -1:
         return _build_span(
             source_text, index, index + len(quote),
-            base_score=100.0, expand=expand_to_sentence,
+            base_score=100.0, expand=False,
         )
 
     # Case-insensitive source match.
@@ -37,7 +39,7 @@ def ground_quote(
     if index != -1:
         return _build_span(
             source_text, index, index + len(quote),
-            base_score=98.0, expand=expand_to_sentence,
+            base_score=98.0, expand=False,
         )
 
     # Normalize whitespace while retaining the original source.
@@ -64,11 +66,19 @@ def ground_quote(
                 quote,
             )
 
-    # Fuzzy alignment.
+    # Fuzzy alignment. Only this path expands to the containing sentence,
+    # because a fuzzy match may land mid-sentence and needs context to
+    # establish the claim.
     alignment = _fuzzy_align(quote, source_text)
     if alignment is not None:
-        snippet, score = alignment
+        snippet, score, dest_start = alignment
         if snippet and score >= min_score:
+            if expand_to_sentence:
+                snippet = _expand_to_sentence(
+                    snippet,
+                    source_text,
+                    start=dest_start,
+                )
             return snippet, score
 
     # Fall back to grounding on the numeric value alone. The model often
@@ -83,6 +93,12 @@ def ground_quote(
                 index:index + len(number_token)
             ].strip()
             if snippet:
+                if expand_to_sentence:
+                    snippet = _expand_to_sentence(
+                        snippet,
+                        source_text,
+                        start=index,
+                    )
                 return snippet, 85.0
 
     # Never return the model's quote as evidence.
@@ -106,14 +122,37 @@ def _build_span(
     start = max(0, start)
     end = min(len(source_text), end)
 
-    if not expand:
-        return source_text[start:end].strip(), base_score
+    snippet = source_text[start:end].strip()
+    if not snippet:
+        return "", 0.0
 
-    # Find the sentence boundaries around the matched span.
+    if expand:
+        snippet = _expand_to_sentence(
+            snippet,
+            source_text,
+            start=start,
+        )
+
+    return snippet, base_score
+
+def _expand_to_sentence(
+    snippet: str,
+    source_text: str,
+    start: Optional[int] = None,
+) -> str:
+    """Expand a matched snippet to the boundaries of its containing
+    sentence in `source_text`, preserving the original source wording."""
+    if start is None:
+        start = source_text.find(snippet)
+        if start == -1:
+            return snippet
+
+    end = start + len(snippet)
+
+    # Walk backwards to the nearest sentence-ending punctuation.
     sentence_start = start
     sentence_end = end
 
-    # Walk backwards to the nearest sentence-ending punctuation.
     previous_boundary = max(
         source_text.rfind(".", 0, start),
         source_text.rfind("!", 0, start),
@@ -138,17 +177,19 @@ def _build_span(
     else:
         sentence_end = len(source_text)
 
-    snippet = source_text[sentence_start:sentence_end].strip()
+    expanded = source_text[sentence_start:sentence_end].strip()
 
-    if not snippet:
-        return "", 0.0
-
-    return snippet, base_score
+    return expanded if expanded else snippet
 
 def _fuzzy_align(
     quote: str,
     source_text: str,
 ):
+    """Find the best fuzzy alignment of `quote` within `source_text`.
+
+    Returns ``(snippet, score, dest_start)`` or None. Handles both the
+    rapidfuzz ``ScoreAlignment`` object and older plain-tuple returns.
+    """
     try:
         alignment = fuzz.partial_ratio_alignment(
             quote,
@@ -157,10 +198,30 @@ def _fuzzy_align(
     except AttributeError:
         return None
 
-    snippet = source_text[
-        alignment.dest_start:alignment.dest_end
-    ].strip()
-    return snippet, float(alignment.score)
+    if hasattr(alignment, "dest_start"):
+        return (
+            source_text[
+                alignment.dest_start:alignment.dest_end
+            ].strip(),
+            float(alignment.score),
+            alignment.dest_start,
+        )
+
+    try:
+        parts = tuple(alignment)
+    except TypeError:
+        return None
+
+    if len(parts) >= 3:
+        score = float(parts[0])
+        dest_start, dest_end = parts[-2], parts[-1]
+        return (
+            source_text[dest_start:dest_end].strip(),
+            score,
+            dest_start,
+        )
+
+    return None
 
 
 def _extract_number_literal(text: str):

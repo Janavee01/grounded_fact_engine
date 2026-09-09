@@ -1,0 +1,37 @@
+Be honest about what works, what does not, and what you would improve.
+
+
+• identifies when facts corroborate, contradict, or can be reconciled through context.
+
+We may test your
+solution with additional PDFs, so it should not rely on hard-coded facts, filenames, schemas, or
+document-specific rules.
+
+Show Us These Four Cases
+Your submission should include at least one example of each:
+1. A fact corroborated across documents, even if expressed differently.
+2. A genuine or likely contradiction.
+3. An apparent contradiction explained by context, such as time, scope, or units.
+4. An extraction or reasoning failure you found and how you handled—or would improve—it.
+
+Show the source evidence and your system's reasoning for the first three.
+
+• Useful facts that are grounded in the PDFs.
+• Sensible handling of ambiguity, context, and uncertainty.
+
+README.md:
+Setup and Run Instructions Tell us how to run your project.
+Video Demo Link to a demo video of 3 minutes or less showing a PDF being processed
+and the four required cases above.
+Approach Explain your approach, architecture, important decisions, trade-offs, and the
+AI tools you used.
+
+Limitations and Next Steps Tell us what does not work yet and what you would build next.
+
+Additional Notes Add anything else you would like us to know.
+
+Before You Submit
+□ The project runs from my instructions and accepts new PDFs through an API or UI.
+□ Results contain facts, source evidence, and cross-document relationships.
+□ I demonstrate the four required cases.
+□ I have documented my approach and included a demo video of 3 minutes or less.
