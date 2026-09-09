@@ -8,7 +8,7 @@ across documents.
 
 ## Demo
 
-**[https://drive.google.com/file/d/1wULFQEl_Bxn9YKfg1NZKcy7yHQqWB0eo/view?usp=sharing]**
+**https://drive.google.com/file/d/1wULFQEl_Bxn9YKfg1NZKcy7yHQqWB0eo/view?usp=sharing**
 
 The video walks through: uploading a PDF, watching facts get extracted and
 grounded to source quotes, then showing the four required cases (corroboration,
