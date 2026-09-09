@@ -29,7 +29,7 @@ Given facts extracted (and grounded) from multiple PDFs, the comparator:
    │  • gate (any one must hold):                │
    │      entity similarity          ≥ 80%      │
    │      claim similarity           ≥ 72%      │
-   │      Jaccard token overlap      ≥ 35%      │
+   │      Jaccard token overlap      ≥ 20%      │
    └───────────────────────────────────────────────┘
                  │
                  ▼
@@ -63,7 +63,11 @@ they reach the LLM:
 - A pair is a candidate if **any** of these hold:
   - entity similarity **≥ 80%**, or
   - claim similarity **≥ 72%**, or
-  - Jaccard token overlap **≥ 35%**.
+  - Jaccard token overlap **≥ 20%**.
+- Pairs that score **≥ 60%** on claim similarity but miss the gates above go
+  through a cheap **semantic candidate check**: one extra LLM call that only
+  decides whether the two facts *could* refer to the same underlying subject —
+  it never classifies the relationship.
 - The matcher pulls `entity`, `time_period`, and `scope` from each fact's
   context dict so matching uses the real attributes rather than raw text.
 

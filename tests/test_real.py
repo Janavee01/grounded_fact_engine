@@ -4,7 +4,7 @@ End-to-end tests: real PDFs → real Ollama → extraction → comparison.
 Run:
     python -m pytest -v -s tests/test_real.py
 
-Requires Ollama running with qwen3:4b pulled (already installed locally).
+Requires Ollama running with qwen3:8b pulled (already installed locally).
 Set LLM_PROVIDER=openrouter + OPENROUTER_API_KEY to use a hosted model.
 """
 import sys, os

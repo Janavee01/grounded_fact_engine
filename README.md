@@ -96,7 +96,7 @@ PDF ──► pdfplumber (plain text + tables, page-by-page)
 ```
 
 ### Why one call per page and not "one call for the whole PDF"
-See [docs/approach.md](docs/approach.md). Short version: the grounding gate
+See [docs/EXTRACTION.md](docs/EXTRACTION.md). Short version: the grounding gate
 needs the exact `verbatim_quote` inside the prompt's context window. When you
 feed an entire 200k-character report in one call, the model paraphrases instead
 of quoting, the grounding score collapses, and facts get silently dropped.
@@ -146,20 +146,22 @@ with a hosted model.
 ### Try it
 Upload any PDF via the Streamlit sidebar (or `POST /upload`). Facts appear in
 the **Facts** tab with source snippet + confidence; relationships appear in
-**Compare** and **Four Cases**.
+**Compare** (with a live progress bar), and the four required cases render in
+**Demo Cases**. The **Stats** tab shows counts per document and fact type.
 
 ---
 
 ## API
 
-| Method | Endpoint        | Description                                     |
-|--------|-----------------|-------------------------------------------------|
-| POST   | `/upload`       | Upload a PDF → extract + store facts            |
-| GET    | `/facts`        | All facts with evidence + confidence            |
-| GET    | `/facts/{doc}`  | Facts for one document                          |
-| GET    | `/compare`      | Cross-document relationships + explanations     |
-| GET    | `/stats`        | Counts per document / fact type                 |
-| DELETE | `/facts`        | Clear the knowledge base                        |
+| Method | Endpoint              | Description                                     |
+|--------|-----------------------|-------------------------------------------------|
+| POST   | `/upload`             | Upload a PDF → extract + store facts            |
+| GET    | `/facts`              | All facts with evidence + confidence            |
+| GET    | `/facts/{doc}`        | Facts for one document                          |
+| GET    | `/compare`            | Cross-document relationships + explanations     |
+| GET    | `/compare/progress`   | Live progress for an active comparison run      |
+| GET    | `/stats`              | Counts per document / fact type                 |
+| DELETE | `/facts`              | Clear the knowledge base                        |
 
 Example:
 ```bash
@@ -183,8 +185,18 @@ src/
   storage/             SQLite persistence
   models/              pydantic schemas (Fact, FactComparison)
   api/main.py          FastAPI
+  ingest.py            CLI batch-extraction utility
 app_ui.py              Streamlit UI
-tests/                 unit tests (no network) + real end-to-end tests
+debug_pdf.py           PDF text extraction debugger
+demo_cases.py          Demo evaluation CLI (queries API endpoints)
+smoke_test.py          Quick extraction smoke test on PDFs
+tests/
+  test_pipeline.py         unit tests (no network, 42 tests)
+  test_generic_extraction.py  unit tests for extraction validity
+  test_pdf_real.py         real PDF smoke tests
+  test_real.py             end-to-end tests (real LLM required)
+  test_extraction.py       CLI extraction script (not a pytest suite)
+  test_extraction_manual.py  CLI manual extraction detail viewer
 run.py                 FastAPI launcher
 ```
 
@@ -193,8 +205,9 @@ run.py                 FastAPI launcher
 ## Testing
 
 ```bash
-pytest tests/test_extraction.py tests/test_pipeline.py   # unit, no network
-pytest tests/test_real.py -v -s                          # real end-to-end
+pytest tests/test_pipeline.py tests/test_generic_extraction.py   # unit, no network
+pytest tests/test_pdf_real.py -v -s                              # real PDF smoke tests
+pytest tests/test_real.py -v -s                                  # real end-to-end (needs LLM)
 ```
 
 ---

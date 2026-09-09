@@ -48,6 +48,8 @@ It is fully **document-agnostic**. It works with any PDF via a FastAPI + Streaml
 
 ```
 colab/                 Colab (T4) one-shot notebook
+notebooks/
+  experiments/         scratch experiments (not part of the pipeline)
 data/                  Starter PDFs + fact cache (generated)
 src/
   extraction/
@@ -63,9 +65,18 @@ src/
   api/
     main.py            FastAPI
   ingest.py            CLI batch-extraction utility
-app_ui.py              Streamlit UI
+app_ui.py              Streamlit UI (Facts / Compare / Stats / Demo Cases)
+debug_pdf.py           PDF text extraction debugger
+demo_cases.py          Demo evaluation CLI (queries API endpoints)
+smoke_test.py          Quick extraction smoke test on PDFs
 run.py                 FastAPI launcher
-tests/                 unit + end-to-end test suites
+tests/
+  test_pipeline.py         unit tests (no network, 42 tests)
+  test_generic_extraction.py  unit tests for extraction validity
+  test_pdf_real.py         real PDF smoke tests
+  test_real.py             end-to-end tests (real LLM required)
+  test_extraction.py       CLI extraction script (not a pytest suite)
+  test_extraction_manual.py  CLI manual extraction detail viewer
 ```
 
 ## 4. End-to-End Data Flow
@@ -101,7 +112,7 @@ PDF ──► pdfplumber (plain text + tables, page-by-page)
   exact `verbatim_quote` inside the prompt's context window. Feeding a 200k-char
   report in one call makes the model paraphrase, the grounding score collapses,
   and facts are silently dropped. Per-page chunks (~14k chars) keep evidence
-  in-context. Full rationale in [approach.md](approach.md).
+  in-context. Full rationale in [EXTRACTION.md](EXTRACTION.md).
 
 - **Facts are only as good as their evidence.** A fact is discarded unless its
   `verbatim_quote` fuzzy-matches the actual PDF text (`MIN_GROUNDING_SCORE=80`).

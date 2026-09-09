@@ -29,6 +29,7 @@ it.
 | GET | `/facts` | All facts with evidence + confidence |
 | GET | `/facts/{doc}` | Facts for one document |
 | GET | `/compare` | Cross-document relationships + explanations |
+| GET | `/compare/progress` | Live progress for an active comparison run |
 | GET | `/stats` | Counts per document / fact type |
 | DELETE | `/facts` | Clear the knowledge base |
 
@@ -63,9 +64,25 @@ Returns the cross-document relationships:
 `corroborates` / `contradicts` / `reconciled`, each with an explanation,
 confidence, and source snippets. `unrelated` pairs are filtered out.
 
+### GET `/compare/progress`
+
+```bash
+curl -s localhost:8000/compare/progress
+```
+
+Returns the live progress of an in-flight comparison run:
+
+```json
+{ "running": true, "completed": 12, "total": 40, "stage": "Comparing pair 12/40", "error": null }
+```
+
+The Streamlit Compare tab polls this endpoint to render its progress bar.
+
 ### GET `/stats`
 
-Counts grouped by document and by fact type.
+Counts grouped by document. Fact types currently counts two buckets
+(`numeric` and `semantic`); the other enum types (`date`, `time`, `boolean`,
+`entity`) are not yet broken out in this endpoint.
 
 ### DELETE `/facts`
 
@@ -81,14 +98,15 @@ curl -s -X DELETE localhost:8000/facts
    Streamlit UI (app_ui.py)
    ├─ Sidebar: upload PDF ────► POST /upload ──► extraction
    ├─ Facts tab        ───────► GET /facts      (snippet + confidence)
-   ├─ Compare tab      ───────► GET /compare    (relationships)
-   └─ Four Cases tab   ───────► GET /compare    (live four required cases)
+   ├─ Compare tab      ───────► GET /compare + polls GET /compare/progress
+   ├─ Stats tab        ───────► GET /stats      (counts)
+   └─ Demo Cases tab   ───────► GET /compare    (live four required cases)
                                     │
         corroboration  contradiction  reconciliation  failure(summary)
 ```
 
-### Four Cases tab (live, not hardcoded)
-The Demo / Four Cases tab renders **real** results fetched from `GET /compare`.
+### Demo Cases tab (live, not hardcoded)
+The Demo Cases tab renders **real** results fetched from `GET /compare`.
 
 - **Case 1 — Corroboration:** India FY25 GDP growth (ES 6.4% vs IMF ~6.5%).
 - **Case 2 — Contradiction:** same metric/entity/period with differing values.
