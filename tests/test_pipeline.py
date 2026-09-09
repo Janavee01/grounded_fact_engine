@@ -209,6 +209,23 @@ def test_candidates_reject_same_document():
     assert comparator._are_candidates(f1, f2) is False
 
 
+def test_candidates_keep_plan_and_reported_outcome_pair():
+    """A report can restate just the planned metric while giving an outcome."""
+    comparator = FactComparator(llm_client=FakeLLMClient([]))
+    plan = {
+        "text": "The first phase of the replacement program covers 120 buses.",
+        "source_document": "plan.pdf",
+    }
+    outcome = {
+        "text": (
+            "The review found that 96 new buses had entered regular service "
+            "rather than the 120 originally expected in the first phase."
+        ),
+        "source_document": "review.pdf",
+    }
+    assert comparator._are_candidates(plan, outcome) is True
+
+
 # ---------------------------------------------------------------------------
 # 3. Full compare_facts pipeline with a scripted fake LLM — the four cases
 # ---------------------------------------------------------------------------
@@ -294,6 +311,23 @@ def test_full_pipeline_unrelated_is_dropped():
                     context={"entity": "Acme"}, source_document="b.pdf")
     comparisons = comparator.compare_facts([f1, f2])
     assert comparisons == []  # unrelated results should be filtered out
+
+
+def test_relationship_imperative_is_normalized():
+    """The wording in the comparison request must not discard a reconcile result."""
+    fake = FakeLLMClient([
+        {"relationship": "reconcile", "confidence": 0.8,
+         "explanation": "Different scope explains the figures.", "context_notes": "scope"},
+    ])
+    comparator = FactComparator(llm_client=fake)
+    f1 = make_fact(text="Standalone revenue was 500.", source_document="a.pdf")
+    f2 = make_fact(text="Consolidated revenue was 650.", source_document="b.pdf")
+
+    comparison = comparator._compare_pair_with_llm(
+        comparator._to_dict(f1), comparator._to_dict(f2)
+    )
+    assert comparison is not None
+    assert comparison.relationship == "reconciled"
 
 
 # ---------------------------------------------------------------------------

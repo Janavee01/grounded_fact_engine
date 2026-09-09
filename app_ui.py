@@ -1,6 +1,8 @@
 import streamlit as st
 import requests
 import json
+import time
+from concurrent.futures import ThreadPoolExecutor
 
 st.set_page_config(page_title="Fact Knowledge Layer", layout="wide")
 
@@ -43,25 +45,108 @@ with tab1:
 
 with tab2:
     st.header("Fact Comparisons")
-    response = requests.get('http://localhost:8000/compare')
-    if response.status_code == 200:
-        data = response.json()
 
-        col1, col2 = st.columns(2)
+    if st.button("Run comparisons", type="primary"):
+        executor = ThreadPoolExecutor(max_workers=1)
+        st.session_state.comparison_executor = executor
+        st.session_state.comparison_future = executor.submit(
+            requests.get,
+            "http://localhost:8000/compare",
+            timeout=900,
+        )
+        st.session_state.pop("comparison_data", None)
+
+    future = st.session_state.get("comparison_future")
+    if future and not future.done():
+        progress_bar = st.progress(0, text="Starting comparison…")
+        status = st.empty()
+        while not future.done():
+            try:
+                progress = requests.get(
+                    "http://localhost:8000/compare/progress", timeout=2
+                ).json()
+                total = progress.get("total", 0)
+                completed = progress.get("completed", 0)
+                fraction = completed / total if total else 0
+                stage = progress.get("stage", "Working")
+                progress_bar.progress(
+                    min(1.0, fraction),
+                    text=f"{stage}: {completed}/{total} pairs",
+                )
+                status.caption("The page will update automatically when complete.")
+            except requests.RequestException:
+                status.caption("Waiting for the comparison service…")
+            time.sleep(0.5)
+
+        response = future.result()
+        st.session_state.pop("comparison_future", None)
+        executor = st.session_state.pop("comparison_executor", None)
+        if executor:
+            executor.shutdown(wait=False)
+        if response.status_code == 200:
+            st.session_state.comparison_data = response.json()
+        else:
+            st.error(f"Comparison API error: {response.text}")
+
+    data = st.session_state.get("comparison_data")
+    if data:
+
+        col1, col2, col3 = st.columns(3)
+
         with col1:
-            st.metric("Corroborations", data['summary']['corroborations_count'])
+            st.metric(
+                "Corroborations",
+                data['summary']['corroborations_count']
+            )
+
         with col2:
-            st.metric("Contradictions", data['summary']['contradictions_count'])
+            st.metric(
+                "Contradictions",
+                data['summary']['contradictions_count']
+            )
 
-        if data['corroborations']:
+        with col3:
+            st.metric(
+                "Reconciled",
+                data['summary']['reconciled_count']
+            )
+
+        st.caption(
+            f"Comparisons evaluated: "
+            f"{data.get('total_comparisons', 0)}"
+        )
+
+        if data.get('corroborations'):
             st.subheader("Corroborations")
-            for comp in data['corroborations']:
-                st.info(f"{comp['explanation']}")
 
-        if data['contradictions']:
+            for comp in data['corroborations']:
+                st.info(
+                    comp['explanation']
+                )
+
+        if data.get('contradictions'):
             st.subheader("Contradictions")
+
             for comp in data['contradictions']:
-                st.warning(f"{comp['explanation']}")
+                st.warning(
+                    comp['explanation']
+                )
+
+        if data.get('reconciled'):
+            st.subheader("Contextual Reconciliation")
+
+            for comp in data['reconciled']:
+                st.success(
+                    comp['explanation']
+                )
+
+                if comp.get('context_notes'):
+                    st.caption(
+                        f"Context: {comp['context_notes']}"
+                    )
+
+    elif not future:
+        st.info("Click **Run comparisons** to begin. Progress appears here live.")
 
 with tab3:
     st.header("Statistics")
@@ -92,10 +177,9 @@ with tab4:
         "real corroboration, contradiction, and reconciliation results."
     )
 
-    response = requests.get("http://localhost:8000/compare")
+    data = st.session_state.get("comparison_data")
 
-    if response.status_code == 200:
-        data = response.json()
+    if data:
 
         st.subheader("Case 1 — Corroboration")
         corrs = data.get("corroborations", [])
@@ -131,3 +215,5 @@ with tab4:
         )
         total = data.get("total_comparisons", 0)
         st.write(f"Comparisons evaluated: {total}")
+    else:
+        st.caption("Run comparisons from the Compare tab to populate these cases.")

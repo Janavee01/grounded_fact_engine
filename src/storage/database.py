@@ -33,13 +33,22 @@ class Database:
         self.Session = sessionmaker(bind=self.engine)
     
     def save_fact(self, fact):
-        """Save a fact to database"""
+        """Save a fact to database idempotently."""
         session = self.Session()
         try:
+            existing = session.get(FactRecord, fact.id)
+
+            if existing is not None:
+                return fact.id
+
             record = FactRecord(
                 id=fact.id,
                 text=fact.text,
-                fact_type=fact.fact_type.value if hasattr(fact.fact_type, 'value') else str(fact.fact_type),
+                fact_type=(
+                    fact.fact_type.value
+                    if hasattr(fact.fact_type, 'value')
+                    else str(fact.fact_type)
+                ),
                 value=fact.value,
                 unit=fact.unit,
                 context=fact.context,
@@ -49,12 +58,14 @@ class Database:
                 confidence=fact.confidence,
                 extraction_method=fact.extraction_method
             )
+
             session.add(record)
             session.commit()
             return fact.id
-        except Exception as e:
+
+        except Exception:
             session.rollback()
-            raise e
+            raise
         finally:
             session.close()
     

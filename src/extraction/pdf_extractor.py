@@ -94,7 +94,10 @@ class PDFExtractor:
 
     @staticmethod
     def _log(message: str) -> None:
-        verbose = os.getenv("PDF_EXTRACTION_VERBOSE", "0") == "1"
+        # Upload requests can take several model calls. Show progress by
+        # default so a synchronous UI does not look stalled; users can still
+        # silence this with PDF_EXTRACTION_VERBOSE=0.
+        verbose = os.getenv("PDF_EXTRACTION_VERBOSE", "1") == "1"
         if verbose:
             print(f"[extractor] {message}", flush=True)
 

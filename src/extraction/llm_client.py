@@ -35,7 +35,9 @@ class LLMClient:
         default_model = (
             "google/gemma-4-26b-a4b-it:free"
             if self.provider == "openrouter"
-            else "qwen3:4b"
+            # Keep the runtime default aligned with the documented local
+            # setup, which pulls this model.
+            else "qwen3:8b"
         )
         model_env = "OPENROUTER_MODEL" if self.provider == "openrouter" else "OLLAMA_MODEL"
         self.model = model or os.getenv(model_env, default_model)
