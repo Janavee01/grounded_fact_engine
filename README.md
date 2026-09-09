@@ -2,11 +2,7 @@
 
 Extract grounded facts from PDFs, link every fact to verbatim source evidence,
 and automatically detect when facts **corroborate**, **contradict**, or **reconcile**
-across documents — with an LLM-written explanation for every relationship.
-
-Built for the Superjoin VIT 2026 Engineering Intern assignment. Fully
-document-agnostic: no hard-coded facts, filenames, schemas, or domain rules.
-Works with **any PDF** via a FastAPI + Streamlit UI.
+across documents.
 
 ---
 
