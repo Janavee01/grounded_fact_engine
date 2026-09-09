@@ -123,16 +123,21 @@ async def compare_facts():
         corroborations = [c for c in comparisons if c.relationship == "corroborates"]
         contradictions = [c for c in comparisons if c.relationship == "contradicts"]
         reconciled = [c for c in comparisons if c.relationship == "reconciled"]
+        insufficient_context = [
+            c for c in comparisons if c.relationship == "insufficient_context"
+        ]
         
         result = {
             "total_comparisons": len(comparisons),
             "corroborations": corroborations,
             "contradictions": contradictions,
             "reconciled": reconciled,
+            "insufficient_context": insufficient_context,
             "summary": {
                 "corroborations_count": len(corroborations),
                 "contradictions_count": len(contradictions),
-                "reconciled_count": len(reconciled)
+                "reconciled_count": len(reconciled),
+                "insufficient_context_count": len(insufficient_context)
             }
         }
         with compare_progress_lock:
